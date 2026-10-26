@@ -1,0 +1,58 @@
+# Docker's default json-file log has no size limit; cap every container's log.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  smarteye:
+    build: .
+    container_name: smarteye
+    logging: *logging
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    # ImmichEye's events, signed image links and, in basic or none mode, the web UI.
+    # With Authelia the UI is refused here and served through the login proxy below.
+    ports:
+      - "${SMARTEYE_BIND:-0.0.0.0}:${SMARTEYE_PORT:-8090}:8090"
+
+  # ---- Optional Authelia login (COMPOSE_PROFILES=authelia): see README "Login with Authelia"
+
+  authelia:
+    profiles: [authelia]
+    image: authelia/authelia:4.39
+    container_name: smarteye-authelia
+    logging: *logging
+    restart: unless-stopped
+    volumes:
+      - ./authelia:/config          # configuration.yml + users_database.yml; holds secrets
+    # No published port: only the proxy reaches it.
+
+  proxy:
+    profiles: [authelia]
+    image: nginx:1.29-alpine
+    container_name: smarteye-proxy
+    logging: *logging
+    restart: unless-stopped
+    depends_on: [smarteye, authelia]
+    environment:
+      SMARTEYE_HOSTNAME: ${SMARTEYE_HOSTNAME:?set SMARTEYE_HOSTNAME in .env, e.g. smarteye.lan}
+      NGINX_ENVSUBST_FILTER: "SMARTEYE_HOSTNAME"
+    volumes:
+      - ./deploy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./tls:/etc/nginx/tls:ro      # cert.pem + key.pem
+    ports:
+      - "${SMARTEYE_LOGIN_BIND:-0.0.0.0}:${SMARTEYE_LOGIN_PORT:-3001}:3001"
+    networks:
+      default:
+        # SmartEye trusts the login header from this address only (SMARTEYE_TRUSTED_PROXIES)
+        ipv4_address: ${SMARTEYE_PROXY_IP:-172.25.0.10}
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${SMARTEYE_SUBNET:-172.25.0.0/24}

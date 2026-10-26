@@ -1,0 +1,51 @@
+# Authelia for SmartEye. Copy to ./authelia/configuration.yml (mode 600) and replace every
+# CHANGE_ME with its own random value:  openssl rand -hex 32
+# Put users in ./authelia/users_database.yml (see Authelia's file backend docs).
+theme: 'dark'
+
+server:
+  # The /authelia prefix puts the login page on the same origin and port as SmartEye,
+  # so it needs no DNS record or certificate of its own.
+  address: 'tcp://0.0.0.0:9091/authelia'
+
+log:
+  level: 'info'
+
+identity_validation:
+  reset_password:
+    jwt_secret: 'CHANGE_ME'
+
+authentication_backend:
+  password_reset:
+    disable: true
+  file:
+    path: '/config/users_database.yml'
+    password:
+      algorithm: 'argon2'
+
+access_control:
+  default_policy: 'one_factor'
+
+session:
+  secret: 'CHANGE_ME'
+  cookies:
+    - name: 'smarteye_session'
+      domain: 'smarteye.example.lan'                       # = SMARTEYE_HOSTNAME
+      authelia_url: 'https://smarteye.example.lan:3001/authelia'
+      expiration: '12 hours'
+      inactivity: '30 days'
+      remember_me: '90 days'
+
+regulation:
+  max_retries: 5
+  find_time: '2 minutes'
+  ban_time: '5 minutes'
+
+storage:
+  encryption_key: 'CHANGE_ME'
+  local:
+    path: '/config/db.sqlite3'
+
+notifier:
+  filesystem:
+    filename: '/config/notification.txt'

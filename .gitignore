@@ -1,0 +1,12 @@
+.env
+.env.bak*
+/data/
+/devdata/
+/authelia/
+/tls/
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.playwright-mcp/
+/demo-data/
