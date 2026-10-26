@@ -105,7 +105,7 @@ IMMICHEYE_EVENTS_CAMERAS=FDoor,BDoor
 IMMICHEYE_EVENTS_FRAME_PX=640
 ```
 
-The event format ImmichEye sends is specified in ImmichEye's `docs/smarteye-events.md`.
+The event format ImmichEye sends is specified in ImmichEye's [docs/face-events.md](https://github.com/JameZUK/ImmichEye/blob/main/docs/face-events.md).
 
 ### Login with Authelia
 

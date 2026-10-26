@@ -1,6 +1,6 @@
 """Faces in, visits and identities out.
 
-A face event (one frame from one camera, see ImmichEye docs/smarteye-events.md) becomes
+A face event (one frame from one camera, see ImmichEye docs/face-events.md) becomes
 sightings. Each sighting joins an open visit on that camera, the same person's arrival, or
 starts one. A visit closes once its camera has seen no face of that person for
 SMARTEYE_VISIT_GAP_S, and is then given an identity:
