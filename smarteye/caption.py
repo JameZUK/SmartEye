@@ -52,18 +52,24 @@ Rules:
 - Face recognition's name is who it is: don't second-guess it. Use a person's first name
   (Alex Carter -> Alex). Other names are the household's own labels for regular visitors
   (Amazon, royal mail, Milk man): use them as they'd say them (Royal Mail, the milkman).
+  A label says who someone is, not what they have with them: a milkman needn't have
+  crates, nor "dog woman" a dog. Only the frame says that.
 - "Probably" from face recognition means a guess: keep the "probably".
 - The line is about the person face recognition names first, even when someone else is
   nearer or better known: start with them. Anyone listed as also at the door is with them:
-  name them after ("A man in a cream jumper, with Sam"; "Alex is home with Sam"), and
-  describe anyone else you can see who isn't listed.
+  name them after ("A man in a cream jumper, with Sam"; "Alex is home with Sam"). Mention
+  anyone else only if their face and body are plainly in the frame: blur, colour smears,
+  shadows and reflections are not people.
 - Someone not recognised: describe them briefly ("A man in a grey hoodie") and guess why they're
   here from what's visible.
 - Say what they're carrying and anything that shows why they're here: uniform, lanyard,
-  scanner, parcels, food bags, tools, leaflets, a clipboard.
+  scanner, parcels, food bags, tools, leaflets, a clipboard. A courier or postman with no
+  parcel in sight has none: don't give them one. Smoking only if a cigarette or vape is
+  plainly in hand.
 - Mood only from a clear expression or posture; weather only from visible signs (wet ground,
   rain, an umbrella, hood up, bright sun). Otherwise leave them out.
-- Never mention anything you can't see. If the frame shows little, say little.
+- Never mention anything you can't see. If the frame shows little, say little. Something
+  you can't make out is "a black bundle", not a guess at what it might be.
 - Speak about them, never as yourself: no "I" or "I can't see".
 - Greyscale night (infrared) frames have no colours: don't give any.
 - Under 20 words. No time of day unless it's odd (the middle of the night)."""
@@ -223,7 +229,7 @@ class Captioner:
         door = e.s.camera_label(v["camera"])
         when = e.local(v["start"]).strftime("%A %H:%M")
         others = self.together(v)
-        body = {"model": e.s.caption_model, "stream": False, "think": False, "options": {"temperature": 0.3},
+        body = {"model": e.s.caption_model, "stream": False, "think": False, "options": {"temperature": 0},
                 "messages": [{"role": "system", "content": SYSTEM},
                              {"role": "user", "content": context(v, door, when, others) + "\n\n" + FIELDS,
                               "images": [base64.b64encode(jpeg).decode()]}]}
