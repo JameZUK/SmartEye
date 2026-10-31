@@ -115,7 +115,7 @@ published as an event of its own.
 - **`named`**: true once the identity has a real name, either from Immich or one you gave it
   in the UI. False for "Visitor 12". `kind: unknown` with `named: true` is a visitor you know.
 - **Household** (`ignored: true`): set with Household in the UI. They're still matched, so they never become
-  "new visitors". But they fire only `household_arrival`, don't count in today's figures (they're counted
+  "new visitors". But they fire only `household_arrival` (and `household_described`, with descriptions on), don't count in today's figures (they're counted
   separately as `household`), and are left out of expected, overdue and yesterday.
 - **Notes**: free text you write in the UI. It's published with every event about that
   person, for example "Pay £15 cash".
@@ -199,7 +199,8 @@ Rules:
   already been sent by then, so an alert on `unknown_arrival` can still fire for one; a visit
   id that never gets an end event was folded.
 - **Ignored people** (the household) update presence, their own person sensor and the household
-  count, and fire `household_arrival` once per visit. Nothing else: no other event types, and
+  count, and fire `household_arrival` once per visit (then `household_described`, with
+  descriptions on). Nothing else: no other event types, and
   they don't stay on the last-visitor sensors (an arrival that starts unrecognised is there for
   a few seconds, §7.12).
 - **Timer-driven updates.** Presence, today's counts, reports and person sensors are
@@ -514,7 +515,7 @@ token, nothing about rings is said.
    the visit closes: last face + 120 s, checked every 10 s. "On for 5 minutes" means about 3
    minutes of faces.
 7. **The household is invisible to events and last-visitor sensors,** apart from
-   `household_arrival`. It still shows in `*_present` and their own person sensors. For an
+   `household_arrival` and `household_described`. It still shows in `*_present` and their own person sensors. For an
    arrival that starts unrecognised, see §7.12.
 8. **An unidentified visitor shows as `Unrecognised`** on the door sensor; its `name`
    attribute is null. Use the `visit` and `start` attributes, not the state, to tell visits
@@ -566,30 +567,50 @@ native form (message text and loops). Change `notify.mobile_app_phone` to your n
 
 ### 8.1 Notifications
 
-**What's at the door, in words** (descriptions on). One notification per visitor, from the
-`described` event, with the frame:
+**Who's at the door, in words** (descriptions on). One notification per visitor: the
+arrival sends it at once with the facts, and about a second later `described` replaces it
+with the description ("Royal Mail with a large parcel"). If the model fails, the facts stay.
 
 ```yaml
-alias: SmartEye - who's at the door, described
+alias: SmartEye - who's at the door
 mode: queued
 triggers:
   - trigger: state
     entity_id: event.smarteye_visitor
-    attribute: event_type
-    to: described
     not_from: unavailable
+conditions:
+  - condition: state
+    entity_id: event.smarteye_visitor
+    attribute: event_type
+    state: [known_arrival, visitor_arrival, unknown_arrival, described]
 actions:
   - action: notify.mobile_app_phone
     data:
       title: "{{ trigger.to_state.attributes.door }}"
-      message: "{{ trigger.to_state.attributes.description }}"
+      message: >-
+        {{ trigger.to_state.attributes.description
+           or trigger.to_state.attributes.summary }}
       data:
         tag: "smarteye-{{ trigger.to_state.attributes.visit }}"
-        image: /api/image_proxy/image.smarteye_fdoor_frame
+        image: "/api/image_proxy/image.smarteye_{{ trigger.to_state.attributes.camera | lower }}_frame"
 ```
 
-The `tag` makes a second `described` for the same visit (recognised as someone else) replace
-the first. Add `household_described` to welcome people home in words.
+How to get it right:
+
+- **Trigger on the entity, filter in a condition.** Don't use `attribute: event_type` with
+  `to: described` in the trigger: two described visitors in a row leave the attribute at
+  `described`, so the second never fires. The entity's state (the event time) changes on every
+  event.
+- **The `tag` is the visit id,** so the description replaces the arrival notification instead
+  of adding a second one, and a re-description (the visit recognised as someone else by name)
+  replaces that.
+- **`described` fires for every non-household visitor,** known or not. Narrow it with
+  `scene.role` (for example, only `delivery` and `postal` while you're out) or `identity`.
+- **The image is picked by door** (`image.smarteye_fdoor_frame` or `_bdoor_frame`). Use
+  `_face` for the face crop instead of the whole frame.
+- **Not for the household.** `household_described` has no picture on the door's image entities
+  (the household is never put there, so they show the previous visitor). Notify it as text
+  only, or speak it (§8.2).
 
 **Unknown or new visitor, with the face, while nobody's home.** This is the core alert. The
 household is already excluded.
@@ -653,9 +674,35 @@ wrong, alert is acceptable.
 
 ### 8.2 Announcements (TTS / LLM)
 
-With descriptions on, `description` is already written to be read out: `tts.speak` it from
-the `described` event. Otherwise: `summary` is facts only, so HA supplies the tone. Use it raw with `tts.speak`, or hand it to an
-LLM for something more natural:
+**With descriptions on,** `description` is already written to be read out. Speak it from the
+`described` (and `household_described`) events:
+
+```yaml
+alias: SmartEye - say who's at the door
+mode: queued
+triggers:
+  - trigger: state
+    entity_id: event.smarteye_visitor
+    not_from: unavailable
+conditions:
+  - condition: state
+    entity_id: event.smarteye_visitor
+    attribute: event_type
+    state: [described, household_described]
+actions:
+  - action: tts.speak
+    target:
+      entity_id: tts.home_assistant_cloud
+    data:
+      media_player_entity_id: media_player.kitchen
+      message: "{{ trigger.to_state.attributes.description }}"
+```
+
+The description doesn't include your notes; add `person.notes` to the message if you want the
+reminders ("Pay £15 cash").
+
+**Without descriptions,** `summary` is facts only, so HA supplies the tone. Use it raw with
+`tts.speak`, or hand it to an LLM for something more natural:
 
 ```yaml
 actions:
@@ -743,7 +790,8 @@ Use a tap action on any card to link to the SmartEye UI
 - **Welcome home.** `household_arrival` fires seconds after one of the household reaches the
   door, often before the phone's zone changes. Use `identity` to tell people apart and
   `door` for which way they came in: hall lights, heating, "Alex is home". It's a face
-  match, so don't use it to unlock anything.
+  match, so don't use it to unlock anything. With descriptions on, `household_described`
+  follows a second later with a line about them ("back with the shopping, looks tired").
 - **Known people as an arrival hint.** For other Immich people (family, friends),
   `known_arrival` fires the same way, and works for people without the app.
 - **Per-person counters.** A `counter` helper incremented on the end-of-visit events
