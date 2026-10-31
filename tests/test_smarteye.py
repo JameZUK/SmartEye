@@ -1064,3 +1064,22 @@ def test_a_visit_folded_away_before_its_description_is_skipped(engine, monkeypat
     engine.delete_visit(visits(engine)[0]["id"])
     cap.drain()
     assert calls == []
+
+
+def test_people_arriving_together_are_described_together(engine, monkeypatch):
+    cap, calls = captioner(engine, monkeypatch)
+    t = time.time()
+    engine.process(EventIn(id="t1", ts=t, camera="FDoor", frame=b"\xff\xd8frame",
+                           faces=[face(person_vec(), label="Alex Carter"), face(person_vec(), label="Sam Carter")]))
+    later = person_vec()
+    framed(engine, t + 600, face(later), "t2")                 # someone else, later: not with them
+    cap.drain()
+    alex, sam, other = visits(engine)
+    asked = {c["messages"][1]["content"].split("Face recognition: ")[1].split(".")[0]: c["messages"][1]["content"]
+             for c in calls}
+    assert "Also at the door: Sam Carter." in asked["Alex Carter"]
+    assert "Also at the door: Alex Carter." in asked["Sam Carter"]
+    assert "Also at the door" not in asked["nobody recognised"]
+    assert engine.now(alex["id"])["caption"]["with"] == [{"visit": sam["id"], "identity": sam["identity_id"],
+                                                         "name": "Sam Carter"}]
+    assert engine.now(other["id"])["caption"]["with"] == []

@@ -10,6 +10,11 @@ described again if face recognition later settles on someone else by name; a gue
 moves between unnamed visitors keeps the description it has. Listeners hear "caption" with
 the visit as it stands, its description included.
 
+People who arrive together get a visit each, and each is described with the others named
+("Alex is home with Sam"): the model is told who else face recognition has at that door at
+the same time, and the description lists them (with), so Home Assistant can send the group
+one notification.
+
 Frames leave the house when the model runs in Ollama's cloud (the default URL): see README.
 """
 import base64
@@ -28,6 +33,7 @@ log = logging.getLogger(__name__)
 ROLES = ("household", "delivery", "postal", "food delivery", "trades", "friend or family", "neighbour",
          "canvasser or seller", "unknown")
 QUEUE = 20   # visits waiting for a description; more are dropped (a burst the model can't keep up with)
+TOGETHER_S = 5   # visits at one door this close in time are people arriving together
 
 SYSTEM = """You write the line a smart doorbell sends to the phones of the people who live in a
 house when someone comes to the door. You get one still frame from the door camera and what
@@ -45,6 +51,9 @@ Rules:
   (Alex Carter -> Alex). Other names are the household's own labels for regular visitors
   (Amazon, royal mail, Milk man): use them as they'd say them (Royal Mail, the milkman).
 - "Probably" from face recognition means a guess: keep the "probably".
+- The line is about the person face recognition names first. Anyone listed as also at the
+  door is with them: name them too ("Alex is home with Sam"), and describe anyone else you
+  can see who isn't listed.
 - Nobody recognised: describe them briefly ("A man in a grey hoodie") and guess why they're
   here from what's visible.
 - Say what they're carrying and anything that shows why they're here: uniform, lanyard,
@@ -67,25 +76,28 @@ FIELDS = f"""Reply with only a JSON object with these keys:
 - infrared: true for a greyscale night frame"""
 
 
-def context(v: dict, door: str, when: str) -> str:
-    """What face recognition knows about visit v, for the model."""
+def who(v: dict) -> str:
+    """Visit v's person as face recognition has them, in words."""
     if v.get("identity") is None:
-        who = "nobody recognised"
-    else:
-        name = v["name"] if v.get("named") else None
-        probably = "probably " if v.get("provisional") else ""
-        if v.get("ignored"):
-            who = f"{probably}{name or 'someone who lives here'} (lives here)"
-        elif name and v.get("visit_number", 1) > 1:
-            who = f"{probably}{name} (a regular: visit {v['visit_number']})"
-        elif name:
-            who = f"{probably}{name}"
-        elif v.get("visit_number", 1) > 1:
-            who = f"{probably}an unnamed visitor seen {v['visit_number'] - 1} times before"
-        else:
-            who = "nobody recognised (a face not seen before)"
+        return "nobody recognised"
+    name = v["name"] if v.get("named") else None
+    probably = "probably " if v.get("provisional") else ""
+    if v.get("ignored"):
+        return f"{probably}{name or 'someone who lives here'} (lives here)"
+    if name and (v.get("visit_number") or 1) > 1:
+        return f"{probably}{name} (a regular: visit {v['visit_number']})"
+    if name:
+        return f"{probably}{name}"
+    if (v.get("visit_number") or 1) > 1:
+        return f"{probably}an unnamed visitor seen {v['visit_number'] - 1} times before"
+    return "nobody recognised (a face not seen before)"
+
+
+def context(v: dict, door: str, when: str, others: list[dict] = ()) -> str:
+    """What face recognition knows about visit v, and anyone at the door with them, for the model."""
     rang = " They rang the bell." if v.get("rang") else ""
-    return f"Door: {door}. Time: {when}.\nFace recognition: {who}.{rang}"
+    also = f"\nAlso at the door: {'; '.join(who(o) for o in others)}." if others else ""
+    return f"Door: {door}. Time: {when}.\nFace recognition: {who(v)}.{rang}{also}"
 
 
 def parse(text: str) -> dict:
@@ -154,6 +166,13 @@ class Captioner:
                 return
             self.pending.add(data["visit"])
 
+    def together(self, v: dict) -> list[dict]:
+        """The other visits at v's door at the same time: people who came with them."""
+        rows = self.e.db.q("""SELECT id FROM visits WHERE camera = ? AND id != ?
+                                AND start_ts <= ? AND end_ts >= ? ORDER BY start_ts""",
+                           (v["camera"], v["visit"], v["end"] + TOGETHER_S, v["start"] - TOGETHER_S))
+        return [self.e.now(r["id"]) for r in rows]
+
     @staticmethod
     def _key(v: dict) -> int | None:
         """Who a description names: a named identity, or nobody (unnamed visitors read alike)."""
@@ -192,9 +211,10 @@ class Captioner:
             return None
         door = e.s.camera_label(v["camera"])
         when = e.local(v["start"]).strftime("%A %H:%M")
+        others = self.together(v)
         body = {"model": e.s.caption_model, "stream": False, "think": False, "options": {"temperature": 0.3},
                 "messages": [{"role": "system", "content": SYSTEM},
-                             {"role": "user", "content": context(v, door, when) + "\n\n" + FIELDS,
+                             {"role": "user", "content": context(v, door, when, others) + "\n\n" + FIELDS,
                               "images": [base64.b64encode(jpeg).decode()]}]}
         t = time.monotonic()
         try:
@@ -205,7 +225,9 @@ class Captioner:
             log.warning("no description for visit %s: %s", vid, err)
             return None
         cap.update({"for": self._key(v), "model": e.s.caption_model, "ts": time.time(),
-                    "seconds": round(time.monotonic() - t, 1)})
+                    "seconds": round(time.monotonic() - t, 1),
+                    "with": [{"visit": o["visit"], "identity": o["identity"],
+                              "name": o["name"] if o.get("identity") is not None else None} for o in others]})
         if not e.db.x("UPDATE visits SET caption = ? WHERE id = ?", (json.dumps(cap), vid)).rowcount:
             return None   # gone while the model was thinking
         e.counters["captions"] += 1

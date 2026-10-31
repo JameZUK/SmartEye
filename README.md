@@ -68,7 +68,8 @@ vision model on [Ollama](https://ollama.com) when it starts, with what face reco
 "Sam's back with the shopping and looks tired" or "Royal Mail with a large parcel", and the
 visitor's likely role, what they're carrying, mood and weather when visible. It takes about a
 second with `mimo-v2.6-pro` on Ollama's cloud (about $0.0004 a visit). The visit is described
-again if it's later recognised as someone else by name. See Privacy: in the cloud, the frame
+again if it's later recognised as someone else by name. People who arrive together have a
+visit each, and each description names the others ("Alex is home with Sam"). See Privacy: in the cloud, the frame
 leaves your network.
 
 **Intel per identity:** visit count, first and last seen, visits per week, a weekday × hour
@@ -188,7 +189,9 @@ Event attributes: `name`, `named` (a real name, not "Visitor N"), `camera`, `doo
   15th visit, usually Sat 09:30–11:30, last here 4 weeks ago, on time.");
 - `description` and `scene` once the visit is described: the model's line, and `role` (household,
   delivery, postal, food delivery, trades, friend or family, neighbour, canvasser or seller,
-  unknown), `role_confidence`, `carrying`, `appearance`, `mood`, `weather`, `infrared`. Every
+  unknown), `role_confidence`, `carrying`, `appearance`, `mood`, `weather`, `infrared`, and `with`
+  (`[{visit, identity, name}]`, the others who came with them, whose own visits have their own
+  descriptions). Every
   later event of the visit and the door's sensor carry them too.
 
 For a notification with the description, trigger on `described` rather than the arrival: the

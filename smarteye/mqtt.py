@@ -45,7 +45,7 @@ log = logging.getLogger(__name__)
 EVENT_TYPES = ["known_arrival", "visitor_arrival", "unknown_arrival", "identified", "doorbell",
                "new_visitor", "unusual_time", "visit_ended", "household_arrival", "described",
                "household_described"]
-SCENE = ("role", "role_confidence", "carrying", "appearance", "mood", "weather", "infrared")
+SCENE = ("role", "role_confidence", "carrying", "appearance", "mood", "weather", "infrared", "with")
 REGULAR_VISITS = 5      # an unnamed visitor gets a sensor from this many visits
 BRIEF_TTL_S = 10        # arrival, identified and close can come seconds apart
 # A door's last visitor: their name, "Unrecognised" if nobody was identified, "none" before anyone came.

@@ -375,7 +375,7 @@ Fields:
 | `person` | object | §4.3, describing the visits **before** this one, plus `timing` and `visit_number`. Absent without an identity |
 | `summary` | str | The facts in one sentence, for TTS or an LLM prompt |
 | `description` | str | Once described: the vision model's line, written for a notification ("Royal Mail with a large parcel."). Absent until then |
-| `scene` | object | With `description`: `role` (household, delivery, postal, food delivery, trades, friend or family, neighbour, canvasser or seller, unknown), `role_confidence` (low, medium, high), `carrying` (list), `appearance`, `mood`, `weather` (empty unless visible), `infrared` (a greyscale night frame) |
+| `scene` | object | With `description`: `role` (household, delivery, postal, food delivery, trades, friend or family, neighbour, canvasser or seller, unknown), `role_confidence` (low, medium, high), `carrying` (list), `appearance`, `mood`, `weather` (empty unless visible), `infrared` (a greyscale night frame), `with` (`[{visit, identity, name}]`: people at the door at the same time, who have visits of their own; `name` null if not recognised, and it can be the household) |
 
 The `summary` changes with the stage:
 
@@ -604,6 +604,11 @@ How to get it right:
 - **The `tag` is the visit id,** so the description replaces the arrival notification instead
   of adding a second one, and a re-description (the visit recognised as someone else by name)
   replaces that.
+- **People who arrive together** get a visit each, and a `described` each, naming the others
+  ("Alex is home with Sam"). For one notification per group, tag with the lowest visit id in
+  the group, so the second replaces the first:
+  `tag: "smarteye-{{ ([trigger.to_state.attributes.visit] + (trigger.to_state.attributes.scene.with | map(attribute='visit') | list)) | min }}"`
+  (that tag only fits `described`; arrivals have no `scene`).
 - **`described` fires for every non-household visitor,** known or not. Narrow it with
   `scene.role` (for example, only `delivery` and `postal` while you're out) or `identity`.
 - **The image is picked by door** (`image.smarteye_fdoor_frame` or `_bdoor_frame`). Use
