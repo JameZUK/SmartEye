@@ -994,7 +994,7 @@ def test_a_visit_is_described_and_described_again_once_named(engine, monkeypatch
     cap.drain()
     assert len(calls) == 1 and calls[0]["model"] == "vision-test"
     user = calls[0]["messages"][1]
-    assert "nobody recognised" in user["content"] and user["images"] == [base64.b64encode(b"\xff\xd8frame").decode()]
+    assert "This is about (face recognition): someone not recognised." in user["content"] and user["images"] == [base64.b64encode(b"\xff\xd8frame").decode()]
     v = engine.now(visits(engine)[0]["id"])
     assert v["caption"]["summary"] == "A man with a parcel." and v["caption"]["carrying"] == ["parcel"]
     assert v["caption"]["for"] is None
@@ -1075,11 +1075,25 @@ def test_people_arriving_together_are_described_together(engine, monkeypatch):
     framed(engine, t + 600, face(later), "t2")                 # someone else, later: not with them
     cap.drain()
     alex, sam, other = visits(engine)
-    asked = {c["messages"][1]["content"].split("Face recognition: ")[1].split(".")[0]: c["messages"][1]["content"]
+    asked = {c["messages"][1]["content"].split("(face recognition): ")[1].split(".")[0]: c["messages"][1]["content"]
              for c in calls}
     assert "Also at the door: Sam Carter." in asked["Alex Carter"]
     assert "Also at the door: Alex Carter." in asked["Sam Carter"]
-    assert "Also at the door" not in asked["nobody recognised"]
+    assert "Also at the door" not in asked["someone not recognised"]
     assert engine.now(alex["id"])["caption"]["with"] == [{"visit": sam["id"], "identity": sam["identity_id"],
                                                          "name": "Sam Carter"}]
     assert engine.now(other["id"])["caption"]["with"] == []
+
+
+def test_a_person_split_over_two_visits_is_not_their_own_company(engine, monkeypatch):
+    cap, calls = captioner(engine, monkeypatch)
+    t = time.time()
+    for i, (eid, label) in enumerate((("s1", "Sam Carter"), ("s2", "Sam C"))):
+        engine.process(EventIn(id=eid, ts=t + i, camera="FDoor", frame=b"\xff\xd8frame",
+                               faces=[face(person_vec(), label=label)]))
+    # ...then known to be one person: two visits of Sam at once (a split)
+    engine.db.x("UPDATE visits SET identity_id = (SELECT MIN(identity_id) FROM visits)")
+    assert len(visits(engine)) == 2
+    cap.drain()
+    assert len(calls) == 2
+    assert all("Also at the door" not in c["messages"][1]["content"] for c in calls)

@@ -41,20 +41,23 @@ face recognition already knows about the person.
 
 Write it the way one person in the house would tell another, for example:
 - "Sam's back with the shopping and looks tired."
-- "Amazon with a parcel."
-- "The postman with a large parcel, ringing the bell."
+- "The window cleaner, bucket in hand."
+- "The postman, ringing the bell."
 - "A man in a hi-vis jacket with a clipboard, probably a meter reader."
 - "Alex is heading in with a pink bag; it looks wet out there."
+
+These show the style, not what to say: describe only this frame.
 
 Rules:
 - Face recognition's name is who it is: don't second-guess it. Use a person's first name
   (Alex Carter -> Alex). Other names are the household's own labels for regular visitors
   (Amazon, royal mail, Milk man): use them as they'd say them (Royal Mail, the milkman).
 - "Probably" from face recognition means a guess: keep the "probably".
-- The line is about the person face recognition names first. Anyone listed as also at the
-  door is with them: name them too ("Alex is home with Sam"), and describe anyone else you
-  can see who isn't listed.
-- Nobody recognised: describe them briefly ("A man in a grey hoodie") and guess why they're
+- The line is about the person face recognition names first, even when someone else is
+  nearer or better known: start with them. Anyone listed as also at the door is with them:
+  name them after ("A man in a cream jumper, with Sam"; "Alex is home with Sam"), and
+  describe anyone else you can see who isn't listed.
+- Someone not recognised: describe them briefly ("A man in a grey hoodie") and guess why they're
   here from what's visible.
 - Say what they're carrying and anything that shows why they're here: uniform, lanyard,
   scanner, parcels, food bags, tools, leaflets, a clipboard.
@@ -79,7 +82,7 @@ FIELDS = f"""Reply with only a JSON object with these keys:
 def who(v: dict) -> str:
     """Visit v's person as face recognition has them, in words."""
     if v.get("identity") is None:
-        return "nobody recognised"
+        return "someone not recognised"
     name = v["name"] if v.get("named") else None
     probably = "probably " if v.get("provisional") else ""
     if v.get("ignored"):
@@ -90,14 +93,14 @@ def who(v: dict) -> str:
         return f"{probably}{name}"
     if (v.get("visit_number") or 1) > 1:
         return f"{probably}an unnamed visitor seen {v['visit_number'] - 1} times before"
-    return "nobody recognised (a face not seen before)"
+    return "someone not recognised, here for the first time"
 
 
 def context(v: dict, door: str, when: str, others: list[dict] = ()) -> str:
     """What face recognition knows about visit v, and anyone at the door with them, for the model."""
     rang = " They rang the bell." if v.get("rang") else ""
     also = f"\nAlso at the door: {'; '.join(who(o) for o in others)}." if others else ""
-    return f"Door: {door}. Time: {when}.\nFace recognition: {who(v)}.{rang}{also}"
+    return f"Door: {door}. Time: {when}.\nThis is about (face recognition): {who(v)}.{rang}{also}"
 
 
 def parse(text: str) -> dict:
@@ -171,7 +174,15 @@ class Captioner:
         rows = self.e.db.q("""SELECT id FROM visits WHERE camera = ? AND id != ?
                                 AND start_ts <= ? AND end_ts >= ? ORDER BY start_ts""",
                            (v["camera"], v["visit"], v["end"] + TOGETHER_S, v["start"] - TOGETHER_S))
-        return [self.e.now(r["id"]) for r in rows]
+        seen = {v["identity"]} if v.get("identity") is not None else set()
+        out = []
+        for r in rows:
+            o = self.e.now(r["id"])
+            if o.get("identity") is None or o["identity"] not in seen:   # not themselves, in a split visit
+                out.append(o)
+                if o.get("identity") is not None:
+                    seen.add(o["identity"])
+        return out
 
     @staticmethod
     def _key(v: dict) -> int | None:
