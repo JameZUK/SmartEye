@@ -1,4 +1,5 @@
 import base64
+import json
 import time
 
 import numpy as np
@@ -963,3 +964,103 @@ def test_merges_are_recorded_on_the_identity_kept(engine):
     assert sorted(shown.values(), key=str) == [None, names[a], names[b], names[b]]   # first merge that moved each
     engine.forget(c)
     assert not engine.db.q("SELECT 1 FROM merges")
+
+
+def captioner(engine, monkeypatch, reply='{"summary": "A man with a parcel.", "role": "delivery", '
+              '"role_confidence": "medium", "carrying": ["parcel"]}'):
+    """A Captioner with a fake model: the requests it got, and replies of reply (or reply(body))."""
+    from smarteye.caption import Captioner
+    monkeypatch.setattr(engine, "s", engine.s.__class__(**{**engine.s.__dict__, "caption_model": "vision-test"}))
+    calls = []
+
+    def post(body):
+        calls.append(body)
+        return {"message": {"content": reply(body) if callable(reply) else reply}}
+    cap = Captioner(engine, post=post)
+    engine.listeners.append(cap.on_engine)
+    return cap, calls
+
+
+def framed(engine, ts, f, eid):
+    return engine.process(EventIn(id=eid, ts=ts, camera="FDoor", faces=[f], frame=b"\xff\xd8frame"))
+
+
+def test_a_visit_is_described_and_described_again_once_named(engine, monkeypatch):
+    from smarteye import server
+    cap, calls = captioner(engine, monkeypatch)
+    p = person_vec()
+    t = time.time()
+    framed(engine, t, face(p), "c1")
+    cap.drain()
+    assert len(calls) == 1 and calls[0]["model"] == "vision-test"
+    user = calls[0]["messages"][1]
+    assert "nobody recognised" in user["content"] and user["images"] == [base64.b64encode(b"\xff\xd8frame").decode()]
+    v = engine.now(visits(engine)[0]["id"])
+    assert v["caption"]["summary"] == "A man with a parcel." and v["caption"]["carrying"] == ["parcel"]
+    assert v["caption"]["for"] is None
+    # More faces of the same stranger: nothing new to say
+    framed(engine, t + 2, face(near(p)), "c2")
+    cap.drain()
+    assert len(calls) == 1
+    # ImmichEye names them mid-visit: described again, by name
+    framed(engine, t + 4, face(near(p), label="Sam Carter"), "c3")
+    cap.drain()
+    assert len(calls) == 2 and "Sam Carter" in calls[1]["messages"][1]["content"]
+    engine.close_all()
+    cap.drain()
+    assert len(calls) == 2     # closed as the same person: kept
+    shown = server.visits_query(engine)[0]["caption"]
+    assert shown["for"] == visits(engine)[0]["identity_id"] and shown["model"] == "vision-test"
+
+
+def test_a_bad_reply_leaves_no_description(engine, monkeypatch):
+    from smarteye.caption import parse
+    cap, calls = captioner(engine, monkeypatch, reply="I can't help with that.")
+    framed(engine, time.time(), face(person_vec()), "b1")
+    cap.drain()
+    assert len(calls) == 1 and engine.now(visits(engine)[0]["id"])["caption"] is None
+    assert engine.counters["caption_errors"] == 1
+    # Fenced or chatty JSON is fine; an unknown role becomes "unknown"
+    d = parse('Sure!\n```json\n{"summary": "Chris next door.", "role": "spy", "carrying": "a cake"}\n```')
+    assert d["summary"] == "Chris next door." and d["role"] == "unknown" and d["carrying"] == []
+
+
+def test_household_context_and_described_events(engine, monkeypatch):
+    bus, sent = make_bus(engine, monkeypatch)
+    cap, calls = captioner(engine, monkeypatch, reply=lambda body: json.dumps(
+        {"summary": "Alex is back with the shopping." if "lives here" in body["messages"][1]["content"]
+         else "Royal Mail with a large parcel.", "role": "postal", "carrying": ["parcel"], "weather": "raining"}))
+    t = time.time() - 3000
+    post = person_vec()
+    framed(engine, t, face(post, label="royal_mail"), "d1")
+    sent.clear()
+    cap.drain()
+    described = events(sent)
+    assert [e["event_type"] for e in described] == ["described"]
+    assert described[0]["description"] == "Royal Mail with a large parcel."
+    assert described[0]["scene"]["weather"] == "raining" and described[0]["name"] == "Royal Mail"
+    door = [pl for tp, pl in sent if tp == "smarteye/camera/FDoor/last_visitor"][-1]
+    assert door["description"] == "Royal Mail with a large parcel."
+    sent.clear()
+    engine.close_all()
+    assert events(sent)[0]["description"] == "Royal Mail with a large parcel."   # the end event carries it
+    # The household gets its own event type, and stays off the door
+    me = person_vec()
+    framed(engine, t + 1000, face(me, label="Alex Carter"), "d2")
+    engine.close_all()
+    cap.drain()
+    engine.update_identity(visits(engine)[1]["identity_id"], ignored=True)
+    framed(engine, t + 2000, face(near(me), label="Alex Carter"), "d3")
+    sent.clear()
+    cap.drain()
+    assert "Alex Carter (lives here)" in calls[-1]["messages"][1]["content"]
+    assert [e["event_type"] for e in events(sent)] == ["household_described"]
+    assert not [pl for tp, pl in sent if tp == "smarteye/camera/FDoor/last_visitor"]
+
+
+def test_a_visit_folded_away_before_its_description_is_skipped(engine, monkeypatch):
+    cap, calls = captioner(engine, monkeypatch)
+    framed(engine, time.time(), face(person_vec()), "g1")
+    engine.delete_visit(visits(engine)[0]["id"])
+    cap.drain()
+    assert calls == []

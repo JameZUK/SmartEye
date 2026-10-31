@@ -6,7 +6,10 @@ Entities (one "SmartEye" device):
                                    up or changed); doorbell (the bell rang during a visit); when a visit
                                    ends: new_visitor, unusual_time (a regular at an hour they never come)
                                    or visit_ended (none for a stray frame folded into another visit);
-                                   household_arrival (an ignored identity, at arrival or once recognised)
+                                   household_arrival (an ignored identity, at arrival or once recognised);
+                                   described (a vision model's description of the visit, a second or two
+                                   after arrival; again if it's later recognised as someone else),
+                                   household_described for the household
   binary_sensor.smarteye_visitor_present   on while any visit is open; attributes list who
   binary_sensor.smarteye_<camera>_visitor  the same, one per enabled camera
   sensor.smarteye_last_visitor     name of the last identified visitor, household excepted; attributes with details
@@ -21,7 +24,8 @@ Entities (one "SmartEye" device):
                                    SmartEye knows about them (usual times, regularity, notes)
 
 Every event carries "person" (that intel, as of the visit) and "summary", a plain-English line
-of facts for an announcer. Ignored identities (the household) update their own sensor and
+of facts for an announcer; once the visit is described, "description" (the model's line) and
+"scene" (role, carrying, mood, weather), on the door's topic too. Ignored identities (the household) update their own sensor and
 presence, and fire only household_arrival, so other automations never hear them. They don't
 count in today's figures.
 """
@@ -39,7 +43,9 @@ from .stats import iso
 
 log = logging.getLogger(__name__)
 EVENT_TYPES = ["known_arrival", "visitor_arrival", "unknown_arrival", "identified", "doorbell",
-               "new_visitor", "unusual_time", "visit_ended", "household_arrival"]
+               "new_visitor", "unusual_time", "visit_ended", "household_arrival", "described",
+               "household_described"]
+SCENE = ("role", "role_confidence", "carrying", "appearance", "mood", "weather", "infrared")
 REGULAR_VISITS = 5      # an unnamed visitor gets a sensor from this many visits
 BRIEF_TTL_S = 10        # arrival, identified and close can come seconds apart
 # A door's last visitor: their name, "Unrecognised" if nobody was identified, "none" before anyone came.
@@ -386,6 +392,9 @@ class Mqtt:
         if v.get("identity") is not None:
             out["person"] = {**self.brief(v["identity"], v["visit"], v["start"]), "visit_number": v.get("visit_number")}
         out["summary"] = describe(out, stage, bool(self.e.s.doorbell_token))
+        if v.get("caption"):
+            out["description"] = v["caption"]["summary"]
+            out["scene"] = {k: v["caption"].get(k) for k in SCENE}
         return out
 
     def on_engine(self, kind: str, data: dict) -> None:
@@ -402,6 +411,15 @@ class Mqtt:
             self.refresh()
             if self._shown.get(data["camera"]) == data["visit"]:
                 self._door_from_db(data["camera"])
+            return
+        if kind == "caption":
+            payload = self._payload(data, "visit" if data["closed"] else "arrival")
+            if not data["ignored"] and self._shown.get(data["camera"]) == data["visit"]:
+                self._door(data["camera"], data, payload)
+            if data["closed"] and not data["ignored"]:
+                self.republish_last()
+            etype = "household_described" if data["ignored"] else "described"
+            self.pub(f"{self.p}/event", {"event_type": etype, **payload})
             return
         if kind not in ("arrival", "identified", "doorbell", "visit"):
             return

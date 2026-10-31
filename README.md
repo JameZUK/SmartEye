@@ -62,6 +62,15 @@ another visit at that door or within `SMARTEYE_FOLD_S` of it, is a stray frame o
 
 ImmichEye labels in different styles (`cal_smith`, `Cal Smith`) are the same person.
 
+**Descriptions (optional).** With `SMARTEYE_CAPTION_MODEL` set, each visit's frame goes to a
+vision model on [Ollama](https://ollama.com) when it starts, with what face recognition knows
+(who it is, household or visitor, how often they come). Back comes a line for a notification,
+"Sam's back with the shopping and looks tired" or "Royal Mail with a large parcel", and the
+visitor's likely role, what they're carrying, mood and weather when visible. It takes about a
+second with `mimo-v2.6-pro` on Ollama's cloud (about $0.0004 a visit). The visit is described
+again if it's later recognised as someone else by name. See Privacy: in the cloud, the frame
+leaves your network.
+
 **Intel per identity:** visit count, first and last seen, visits per week, a weekday × hour
 heatmap, the usual window (the narrowest time of day, up to 4 h, holding 60% of visits, and the
 days they cluster on), rhythm (median days between visits, when the next is due, overdue if
@@ -74,8 +83,8 @@ it's been twice that), time at the door, and cameras.
 | **Overview** | Today's visits, people, unknowns and new visitors this week; who's at the door now; recent visits; 30-day heatmap and daily bars; regulars |
 | **People** | Everyone, known and visitors, by last seen, visits or name |
 | **Person** | The dossier: stats, heatmap, weekly visits, faces, similar identities, visit log, who was merged in and when. Rename, add notes, mark as household, merge or forget |
-| **Visits** | Every arrival, by day, filterable by camera and known / visitor / unidentified. A visit with stray faces folded in says how many, and marks those faces; one that came to its person by a merge says MERGED IN (and who it was seen as) instead of FIRST VISIT |
-| **Visit** (click any visit) | Every face with size and scores, the frame if sent, and "who is this?": the closest identities, someone else, a new visitor, or delete (posters, reflections) |
+| **Visits** | Every arrival, by day, with its description if there is one, filterable by camera and known / visitor / unidentified. A visit with stray faces folded in says how many, and marks those faces; one that came to its person by a merge says MERGED IN (and who it was seen as) instead of FIRST VISIT |
+| **Visit** (click any visit) | The description (role, carrying, mood, weather, model), every face with size and scores, the frame if sent, and "who is this?": the closest identities, someone else, a new visitor, or delete (posters, reflections) |
 | **Review** | Pairs of identities that look like the same person: merge or mark as different |
 | **Settings** | Cameras on/off, feed status, MQTT, the matching settings in use |
 
@@ -155,7 +164,7 @@ build with them.
 
 | Entity | |
 |---|---|
-| `event.smarteye_visitor` | Fires on arrival: `known_arrival` (an Immich person), `visitor_arrival` (a visitor seen before), `unknown_arrival`. `identified` while the visit is open, when the guess firms up or changes. `doorbell` when the bell rings during a visit. When a visit ends: `new_visitor` (first time ever), `unusual_time` (someone with five or more visits, at an hour they've never come), or `visit_ended`. `household_arrival` for ignored people, so household automations stay apart |
+| `event.smarteye_visitor` | Fires on arrival: `known_arrival` (an Immich person), `visitor_arrival` (a visitor seen before), `unknown_arrival`. `identified` while the visit is open, when the guess firms up or changes. `doorbell` when the bell rings during a visit. When a visit ends: `new_visitor` (first time ever), `unusual_time` (someone with five or more visits, at an hour they've never come), or `visit_ended`. `household_arrival` for ignored people, so household automations stay apart. With descriptions on, `described` (or `household_described`) a second or two after arrival, with the description |
 | `binary_sensor.smarteye_visitor_present` | On while any visit is open; attribute `visitors` |
 | `binary_sensor.smarteye_<camera>_visitor` | The same for one door (one per enabled camera, e.g. `_fdoor_visitor`) |
 | `sensor.smarteye_last_visitor` | Last identified visitor (household excepted), with the event attributes |
@@ -176,7 +185,14 @@ Event attributes: `name`, `named` (a real name, not "Visitor N"), `camera`, `doo
   `avg_dwell_s`, `cameras` and your `notes`;
 - `changed_from` on the end-of-visit event when the final identity isn't the one announced;
 - `summary`: those facts as one line, for an announcer ("Window cleaner is at the front door,
-  15th visit, usually Sat 09:30–11:30, last here 4 weeks ago, on time.").
+  15th visit, usually Sat 09:30–11:30, last here 4 weeks ago, on time.");
+- `description` and `scene` once the visit is described: the model's line, and `role` (household,
+  delivery, postal, food delivery, trades, friend or family, neighbour, canvasser or seller,
+  unknown), `role_confidence`, `carrying`, `appearance`, `mood`, `weather`, `infrared`. Every
+  later event of the visit and the door's sensor carry them too.
+
+For a notification with the description, trigger on `described` rather than the arrival: the
+arrival goes out at once, the description a second or two later.
 
 Arrivals are identified from the faces seen so far (`provisional: true`), and `identified`
 follows as better faces arrive; the final identity comes with the end-of-visit event. Ignored
@@ -274,6 +290,10 @@ All in `.env` (see `.env.example`).
 | `SMARTEYE_RETENTION_DAYS` | 365 | Visits older than this are forgotten; 0 = never |
 | `SMARTEYE_MQTT_URL` | | `mqtt://user:pass@host:1883`; empty = off |
 | `SMARTEYE_MQTT_PREFIX` / `SMARTEYE_HA_DISCOVERY` | `smarteye` / `homeassistant` | Topics; empty discovery = no discovery |
+| `SMARTEYE_CAPTION_MODEL` | | Vision model that describes each visit, e.g. `mimo-v2.6-pro`; empty = off |
+| `SMARTEYE_CAPTION_URL` | `https://ollama.com` | Ollama's cloud, or your own Ollama server (`http://host:11434`; a cloud model through it is named `mimo-v2.6-pro:cloud`) |
+| `OLLAMA_API_KEY` | | Ollama API key, for ollama.com |
+| `SMARTEYE_CAPTION_TIMEOUT_S` | 30 | Give up on a description after this long |
 
 **Tuning.** The match threshold is stricter than ImmichEye's (0.45 against 0.40) because a
 wrong merge is worse than a duplicate: duplicates show up on Review and merge in one click; a
@@ -289,7 +309,7 @@ The UI's JSON API, under the same login. `POST /api/events` (token) is the inges
 | `GET /api/summary` | Overview data |
 | `GET /api/identities?kind=&q=&ignored=&sort=` · `GET /api/identities/{id}` | People; one dossier (`merged`: `[{ts, name, visits}]` merged in) |
 | `PATCH /api/identities/{id}` `{name, notes, ignored}` · `POST …/{id}/merge` `{into}` · `DELETE …/{id}` | Edit, merge, forget |
-| `GET /api/visits?identity=&camera=&kind=&since=&until=&before=` · `GET /api/visits/{id}` | Visits (`folded`: faces folded in; `merged_from`: who it was seen as, if a merge moved it); one with faces (`folded_from`: the stray visit's old id) and candidates |
+| `GET /api/visits?identity=&camera=&kind=&since=&until=&before=` · `GET /api/visits/{id}` | Visits (`folded`: faces folded in; `merged_from`: who it was seen as, if a merge moved it; `caption`: the description, with `summary`, the scene fields, `model` and `for`, the named identity it was written for); one with faces (`folded_from`: the stray visit's old id) and candidates |
 | `POST /api/visits/{id}/assign` `{identity: id or "new"}` · `DELETE /api/visits/{id}` | Move or delete a visit |
 | `GET /api/suggestions` · `POST /api/suggestions/dismiss` `{a, b}` | Review |
 | `GET /api/cameras` · `PATCH /api/cameras/{name}` `{enabled}` · `GET /api/status` | Settings |
@@ -313,7 +333,7 @@ SMARTEYE_DATA=demo-data SMARTEYE_AUTH_MODE=none SMARTEYE_VISIT_GAP_S=3600 \
 ```
 
 `smarteye/engine.py` (sightings, visits, identities, edits), `stats.py` (the intel),
-`server.py` (API), `mqtt.py` (Home Assistant), `static/` (the UI:
+`server.py` (API), `mqtt.py` (Home Assistant), `caption.py` (descriptions), `static/` (the UI:
 plain ES modules, no build step).
 
 ## Privacy
@@ -323,7 +343,10 @@ who never agreed to it. In the UK (and EU) a camera that covers anything beyond 
 property, such as the street or a neighbour's garden, takes you out of the domestic exemption,
 and facial templates are special-category data under UK GDPR. Keep cameras pointed at your own
 property, keep the retention period no longer than you need, set a UI password, and use
-**Forget** when someone asks. Nothing leaves your network except what you send to Home Assistant.
+**Forget** when someone asks. Nothing leaves your network except what you send to Home Assistant,
+and, with descriptions on and a cloud model, each visit's frame with the name face recognition
+gave it. Ollama says it doesn't log or train on prompts or responses, and hosts models mainly in
+the US. Run the model on your own Ollama server (`SMARTEYE_CAPTION_URL`) to keep frames at home.
 
 ## License
 

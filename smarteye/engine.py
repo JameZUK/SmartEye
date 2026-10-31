@@ -22,7 +22,8 @@ Weaker ones still count towards the visit they appear in.
 While a visit is open its identity is a guess, re-made as better faces arrive. Listeners
 hear "arrival" when it starts, "identified" when the guess firms up or changes, and "visit"
 when it closes (with changed_from if that differs from what was last announced).
-A doorbell ring during a visit is "doorbell".
+A doorbell ring during a visit is "doorbell". With SMARTEYE_CAPTION_MODEL set, a vision
+model's description of the visit follows as "caption" (caption.py).
 """
 import base64
 import json
@@ -502,6 +503,7 @@ class Engine:
             "announced": v["announced_id"],
             "identity": v["identity_id"], "name": v["name"], "kind": v["kind"], "named": bool(v["named"]),
             "ignored": bool(v["ignored"]) if v["ignored"] is not None else False,
+            "caption": json.loads(v["caption"]) if v["caption"] else None,
         }
         if with_context and v["identity_id"] is not None:
             out.update(self._context(v["identity_id"], vid, v["start_ts"]), new_visitor=v["how"] == "new")
@@ -538,6 +540,11 @@ class Engine:
                        ignored=bool(i["ignored"]), provisional=True, match_score=g[1],
                        **self._context(i["id"], vid, out["start"]))
         return out
+
+    def now(self, vid: int) -> dict:
+        """A visit as it stands: as it closed, or with the current guess while open."""
+        out = self.visit_summary(vid, with_context=True)
+        return out if out["closed"] else self.current(vid)
 
     def _announce(self, out: dict) -> dict:
         self.db.x("UPDATE visits SET announced_id = ? WHERE id = ?", (out["identity"], out["visit"]))

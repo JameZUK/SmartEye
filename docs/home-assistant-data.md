@@ -138,7 +138,7 @@ All times are local (`SMARTEYE_TZ`, Europe/London).
 
 ## 2. The life of a visit
 
-One visit fires 1 to 4 events, plus state updates. Here is a typical unrecognised caller who rings:
+One visit fires 1 to 4 events, plus state updates (one or two more with descriptions on, `described`). Here is a typical unrecognised caller who rings:
 
 ```
 t=0      first face at FDoor
@@ -148,6 +148,10 @@ t=0      first face at FDoor
          ├─ smarteye/camera/FDoor/face, /frame   raw JPEG of the best face so far
          ├─ smarteye/camera/FDoor/last_visitor   arrival payload (provisional guess, or no identity)
          └─ smarteye/event                       unknown_arrival | visitor_arrival | known_arrival
+
+t≈1s     with SMARTEYE_CAPTION_MODEL: the vision model's description is back
+         ├─ smarteye/camera/FDoor/last_visitor   updated: description, scene
+         └─ smarteye/event                       described   (household: household_described)
 
 t=4s     better faces now match "Window cleaner"
          ├─ smarteye/camera/FDoor/face, /frame   only if the best face changed
@@ -175,6 +179,13 @@ Rules:
   `provisional: true` means the guess comes from matching faces, not from an ImmichEye name.
 - **`identified` fires only when the guess changes**: from nothing to someone, or from one
   person to another. It never repeats.
+- **`described` follows the arrival** when descriptions are on (`SMARTEYE_CAPTION_MODEL`), a
+  second or two later: a vision model's line about the frame ("Royal Mail with a large
+  parcel"), in `description`, with `scene`. It comes again after `identified` if the visit
+  turns out to be someone else *by name* (an unrecognised arrival recognised as the window
+  cleaner); a guess that only moves between unnamed visitors keeps its description. If the
+  model fails or times out there's no `described`, and the other events carry no description.
+  The household's is `household_described`.
 - **The end-of-visit event is final.** If the final identity differs from the one announced,
   the event carries `changed_from: {identity, name}`.
 - **A visit with no usable face** (`how: none`) fires `unknown_arrival`, then `visit_ended`
@@ -334,6 +345,8 @@ On `smarteye/event`, `event_type` is added:
 | `unusual_time` | Close; a regular (5+ visits) at an hour they've never come | Something's off |
 | `visit_ended` | Close; anything else, including unidentified visits (`identity: null`) | History, counters, closing a tagged notification |
 | `household_arrival` | Arrival of an ignored person; or `identified`, when an arrival with no guess turns out to be one (§7.12) | Welcome home, hall lights |
+| `described` | With descriptions on: the visit's description is ready, usually 1–2 s after arrival; again if it's recognised as someone else by name | The notification with "Amazon with a parcel" |
+| `household_described` | The same for the household | "Sam's back with the shopping" |
 
 Fields:
 
@@ -360,6 +373,8 @@ Fields:
 | `changed_from` | `{identity, name}` | Close only: who it was announced as, when that was wrong |
 | `person` | object | §4.3, describing the visits **before** this one, plus `timing` and `visit_number`. Absent without an identity |
 | `summary` | str | The facts in one sentence, for TTS or an LLM prompt |
+| `description` | str | Once described: the vision model's line, written for a notification ("Royal Mail with a large parcel."). Absent until then |
+| `scene` | object | With `description`: `role` (household, delivery, postal, food delivery, trades, friend or family, neighbour, canvasser or seller, unknown), `role_confidence` (low, medium, high), `carrying` (list), `appearance`, `mood`, `weather` (empty unless visible), `infrared` (a greyscale night frame) |
 
 The `summary` changes with the stage:
 
@@ -525,6 +540,10 @@ token, nothing about rings is said.
 14. **A merge retires an identity id.** If an automation or a HA-side counter uses a visitor's
     `identity` and you merge that visitor into someone else, nothing matches the old id again.
     Merge into the identity your automations use, or update them to the kept id.
+15. **A description is a model's reading of one frame.** It names whoever face recognition
+    said it was, so a wrong match gives a confident wrong description. It can miss or
+    misread things (a scanner for a parcel); at night colours and weather are unreliable. Use
+    it to tell you what's going on, not as evidence.
 
 An alternative to the event entity is an **MQTT trigger** on `smarteye/event`. It gets every
 payload directly, with no availability flaps, but isn't visible as an entity:
@@ -546,6 +565,31 @@ The examples use the native trigger and condition forms. Templates appear only w
 native form (message text and loops). Change `notify.mobile_app_phone` to your notify target.
 
 ### 8.1 Notifications
+
+**What's at the door, in words** (descriptions on). One notification per visitor, from the
+`described` event, with the frame:
+
+```yaml
+alias: SmartEye - who's at the door, described
+mode: queued
+triggers:
+  - trigger: state
+    entity_id: event.smarteye_visitor
+    attribute: event_type
+    to: described
+    not_from: unavailable
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      title: "{{ trigger.to_state.attributes.door }}"
+      message: "{{ trigger.to_state.attributes.description }}"
+      data:
+        tag: "smarteye-{{ trigger.to_state.attributes.visit }}"
+        image: /api/image_proxy/image.smarteye_fdoor_frame
+```
+
+The `tag` makes a second `described` for the same visit (recognised as someone else) replace
+the first. Add `household_described` to welcome people home in words.
 
 **Unknown or new visitor, with the face, while nobody's home.** This is the core alert. The
 household is already excluded.
@@ -609,7 +653,8 @@ wrong, alert is acceptable.
 
 ### 8.2 Announcements (TTS / LLM)
 
-`summary` is facts only, so HA supplies the tone. Use it raw with `tts.speak`, or hand it to an
+With descriptions on, `description` is already written to be read out: `tts.speak` it from
+the `described` event. Otherwise: `summary` is facts only, so HA supplies the tone. Use it raw with `tts.speak`, or hand it to an
 LLM for something more natural:
 
 ```yaml
@@ -723,5 +768,8 @@ Use a tap action on any card to link to the SmartEye UI
   visit days, `unusual_time` needs 5 visits. Until then they're null, `unknown` or false.
 - **Timing rules stay in HA.** SmartEye doesn't publish events that are a timer over signals
   HA already has, such as an unanswered ring or someone lingering at the door. See §0.
+- **Descriptions go to Ollama.** With the default `SMARTEYE_CAPTION_URL` (Ollama's cloud) each
+  visit's frame, and the name face recognition gave it, leave your network. Point it at your
+  own Ollama server to keep them at home.
 - **Faces aren't proof.** Recognition is a similarity score. Use it to inform and announce,
   never to unlock a door or disarm an alarm.

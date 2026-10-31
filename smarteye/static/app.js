@@ -50,7 +50,8 @@ function visitRow(v) {
         ${v.closed ? "" : `<span class="chip warn">AT THE DOOR</span>`}
         ${v.merged_from ? `<span class="chip" title="${esc(`Seen as ${v.merged_from}, merged in`)}">MERGED IN</span>`
           : v.how === "new" ? `<span class="chip warn">FIRST VISIT</span>` : ""}
-        ${v.folded ? `<span class="chip" title="Stray faces from a separate short visit, folded into this one">${v.folded} FOLDED IN</span>` : ""}</div></span>
+        ${v.folded ? `<span class="chip" title="Stray faces from a separate short visit, folded into this one">${v.folded} FOLDED IN</span>` : ""}</div>
+      ${v.caption ? `<div class="desc">${esc(v.caption.summary)}</div>` : ""}</span>
     <span class="when">${time(v.start_ts)}<small>${esc(ago(v.start_ts))}</small></span>
   </button>`;
 }
@@ -274,6 +275,13 @@ async function visitsView() {
 
 // ---------- visit detail (modal)
 
+function scene(c) {
+  const bits = [c.role !== "unknown" ? `${c.role} (${c.role_confidence === "high" ? "sure" : c.role_confidence === "medium" ? "likely" : "a guess"})` : "",
+    c.carrying?.length ? "carrying " + c.carrying.join(", ") : "", c.appearance, c.mood, c.weather, c.infrared ? "night (infrared)" : ""].filter(Boolean);
+  return `<div class="scene"><p>${esc(c.summary)}</p>
+    <div class="muted">${esc(bits.join(" · "))}${bits.length ? " · " : ""}<span title="${esc(`Described in ${c.seconds}s`)}">${esc(c.model)}</span></div></div>`;
+}
+
 async function openVisit(id) {
   const v = await api(`/api/visits/${id}`);
   const frame = v.frame ? `<img class="frame" src="/img/e/${encodeURIComponent(v.frame)}.jpg" alt="Frame">` : "";
@@ -286,6 +294,7 @@ async function openVisit(id) {
         <div class="muted" style="font-size:13px">${esc(v.merged_from ? `${v.how === "new" ? "New visitor" : how.split(":")[0]}, as ${v.merged_from}; merged in` : how)}${v.folded ? ` · ${v.folded} stray face${v.folded === 1 ? "" : "s"} folded in from a separate visit` : ""}</div></div>
       <button class="x" data-close aria-label="Close">×</button></div>
     <div class="m-body">
+      ${v.caption ? scene(v.caption) : ""}
       ${frame}
       <h2>Faces <span class="aside">${v.sightings.length}</span></h2>
       <div class="sheet">${v.sightings.map((s) => `<span data-tip="${esc(`${time(s.ts)} · ${s.px}px · det ${s.det.toFixed(2)}${s.label ? " · ImmichEye: " + s.label + " " + (s.score ?? 0).toFixed(2) : s.top?.length ? " · closest " + s.top[0][0] + " " + s.top[0][1].toFixed(2) : ""}${s.usable ? "" : " · too poor to identify"}${s.folded_from ? " · folded in from a separate visit" : ""}`)}">
@@ -424,6 +433,7 @@ async function settings() {
         <div><h2>Privacy</h2><dl class="kv">
           <dt>Retention</dt><dd>${s.retention_days ? `visits older than ${s.retention_days} days are forgotten` : "kept forever"}</dd>
           <dt>Web UI</dt><dd>${{ authelia: "Authelia login", basic: "password (basic auth)" }[s.auth_mode] || "<span class='chip warn'>NO LOGIN</span>"}</dd>
+          <dt>Descriptions</dt><dd>${s.caption_model ? `<span class="mono">${esc(s.caption_model)}</span> ${s.caption_url.startsWith("https://ollama.com") ? "on Ollama's cloud: each visit's frame leaves your network" : "on " + esc(s.caption_url)}` : "off"}</dd>
           <dt>Time zone</dt><dd class="mono">${esc(s.tz)}</dd>
         </dl><p class="muted" style="font-size:12px">Settings come from SmartEye's .env; change them there and restart.</p></div>
       </section>

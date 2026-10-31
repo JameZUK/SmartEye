@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS visits (
     how TEXT,                              -- named | matched | new | manual | none
     match_score REAL,
     announced_id INTEGER,                  -- identity last announced while open (arrival / identified)
-    merge_id INTEGER REFERENCES merges(id) ON DELETE SET NULL   -- came to this identity by that merge
+    merge_id INTEGER REFERENCES merges(id) ON DELETE SET NULL,  -- came to this identity by that merge
+    caption TEXT                           -- JSON: the vision model's description (caption.py)
 );
 CREATE INDEX IF NOT EXISTS visits_identity ON visits(identity_id, start_ts);
 CREATE INDEX IF NOT EXISTS visits_start ON visits(start_ts);
@@ -101,7 +102,7 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 
 NO_REUSE = ("identities", "visits", "sightings")
 ADDED = (("visits", "announced_id", "INTEGER"), ("sightings", "folded_from", "INTEGER"),
-         ("visits", "merge_id", "INTEGER REFERENCES merges(id) ON DELETE SET NULL"))   # columns added since a table was first created
+         ("visits", "merge_id", "INTEGER REFERENCES merges(id) ON DELETE SET NULL"), ("visits", "caption", "TEXT"))   # columns added since a table was first created
 
 
 def _table_sql(name: str) -> str:

@@ -47,6 +47,11 @@ class Settings:
     # Doorbell: Home Assistant reports presses
     doorbell_token: str              # Bearer token for /api/doorbell; empty = endpoint off
     ring_window_s: int               # a ring before anyone's seen waits this long for a visit
+    # Descriptions of each visit by a vision model on Ollama (caption.py)
+    caption_model: str               # e.g. mimo-v2.6-pro; empty = off
+    caption_url: str                 # Ollama's cloud, or a local server (model name then ending :cloud for a cloud model)
+    ollama_key: str                  # OLLAMA_API_KEY: needed for ollama.com, not for a local server
+    caption_timeout_s: int
 
     def camera_label(self, camera: str) -> str:
         return dict(self.camera_labels).get(camera, camera)
@@ -93,4 +98,8 @@ def load() -> Settings:
         public_url=_env("SMARTEYE_PUBLIC_URL", "").rstrip("/"),
         doorbell_token=_env("SMARTEYE_DOORBELL_TOKEN", ""),
         ring_window_s=int(_env("SMARTEYE_RING_WINDOW_S", "30")),
+        caption_model=_env("SMARTEYE_CAPTION_MODEL", ""),
+        caption_url=_env("SMARTEYE_CAPTION_URL", "https://ollama.com").rstrip("/"),
+        ollama_key=_env("OLLAMA_API_KEY", ""),
+        caption_timeout_s=int(_env("SMARTEYE_CAPTION_TIMEOUT_S", "30")),
     )

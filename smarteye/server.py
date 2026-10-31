@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import config, stats
+from .caption import Captioner
 from .db import DB
 from .engine import Engine, EventError, emb_from, parse_event
 from .mqtt import Mqtt
@@ -90,6 +91,8 @@ async def lifespan(app: FastAPI):
     if settings.mqtt_url:
         state["mqtt"] = Mqtt(engine, image_url, frame_url)
         state["mqtt"].start()
+    if settings.caption_model:
+        Captioner(engine).start()
     yield
     for t in tasks:
         t.cancel()
@@ -342,7 +345,7 @@ def visits_query(e: Engine, identity: int | None = None, camera: str = "", kind:
     if open_only:
         where.append("v.closed = 0")
     rows = e.db.q(f"""
-        SELECT v.id, v.camera, v.start_ts, v.end_ts, v.closed, v.how, v.match_score, v.identity_id,
+        SELECT v.id, v.camera, v.start_ts, v.end_ts, v.closed, v.how, v.match_score, v.identity_id, v.caption,
                i.name, i.kind, i.ignored,
                (SELECT COUNT(*) FROM sightings WHERE visit_id = v.id) AS faces,
                (SELECT COUNT(*) FROM sightings WHERE visit_id = v.id AND folded_from IS NOT NULL) AS folded,
@@ -354,7 +357,7 @@ def visits_query(e: Engine, identity: int | None = None, camera: str = "", kind:
         FROM visits v LEFT JOIN identities i ON i.id = v.identity_id
         {"WHERE " + " AND ".join(where) if where else ""}
         ORDER BY v.start_ts DESC LIMIT ?""", (*args, min(limit, 500)))
-    return [dict(r) for r in rows]
+    return [{**dict(r), "caption": json.loads(r["caption"]) if r["caption"] else None} for r in rows]
 
 
 @app.get("/api/visits")
@@ -430,6 +433,7 @@ async def status(request: Request) -> dict:
             "match_margin": s.match_margin, "suggest_threshold": s.suggest_threshold,
             "retention_days": s.retention_days, "ingest_token_set": bool(s.ingest_token),
             "auth_mode": s.auth_mode, "auth_set": s.auth_mode != "none", "public_url": s.public_url,
+            "caption_model": s.caption_model, "caption_url": s.caption_url,
         },
     }
 
