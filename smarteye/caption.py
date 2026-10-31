@@ -176,18 +176,18 @@ class Captioner:
             self.pending.add(data["visit"])
 
     def together(self, v: dict) -> list[dict]:
-        """The other visits at v's door at the same time: people who came with them."""
-        rows = self.e.db.q("""SELECT id FROM visits WHERE camera = ? AND id != ?
+        """The other visits at v's door at the same time: people who came with them. A face too
+        poor to recognise isn't company: it's as likely v's own, seen before they were matched."""
+        rows = self.e.db.q("""SELECT id FROM visits WHERE camera = ? AND id != ? AND identity_id IS NOT NULL
                                 AND start_ts <= ? AND end_ts >= ? ORDER BY start_ts""",
                            (v["camera"], v["visit"], v["end"] + TOGETHER_S, v["start"] - TOGETHER_S))
         seen = {v["identity"]} if v.get("identity") is not None else set()
         out = []
         for r in rows:
             o = self.e.now(r["id"])
-            if o.get("identity") is None or o["identity"] not in seen:   # not themselves, in a split visit
+            if o["identity"] not in seen:   # not themselves, in a split visit
                 out.append(o)
-                if o.get("identity") is not None:
-                    seen.add(o["identity"])
+                seen.add(o["identity"])
         return out
 
     @staticmethod

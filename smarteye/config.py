@@ -48,7 +48,7 @@ class Settings:
     doorbell_token: str              # Bearer token for /api/doorbell; empty = endpoint off
     ring_window_s: int               # a ring before anyone's seen waits this long for a visit
     # Descriptions of each visit by a vision model on Ollama (caption.py)
-    caption_model: str               # e.g. mimo-v2.6-pro; empty = off
+    caption_model: str               # e.g. kimi-k3; empty = off
     caption_url: str                 # Ollama's cloud, or a local server (model name then ending :cloud for a cloud model)
     ollama_key: str                  # OLLAMA_API_KEY: needed for ollama.com, not for a local server
     caption_timeout_s: int

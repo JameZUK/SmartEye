@@ -1097,3 +1097,13 @@ def test_a_person_split_over_two_visits_is_not_their_own_company(engine, monkeyp
     cap.drain()
     assert len(calls) == 2
     assert all("Also at the door" not in c["messages"][1]["content"] for c in calls)
+
+
+def test_a_face_too_poor_to_recognise_is_not_company(engine, monkeypatch):
+    cap, calls = captioner(engine, monkeypatch)
+    t = time.time()
+    framed(engine, t, face(person_vec(), px=20), "u1")         # a blur at the gate...
+    framed(engine, t + 3, face(person_vec()), "u2")            # ...then a visitor at the door, a visit of their own
+    assert len(visits(engine)) == 2
+    cap.drain()
+    assert all("Also at the door" not in c["messages"][1]["content"] for c in calls)

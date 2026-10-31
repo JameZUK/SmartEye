@@ -67,7 +67,7 @@ vision model on [Ollama](https://ollama.com) when it starts, with what face reco
 (who it is, household or visitor, how often they come). Back comes a line for a notification,
 "Sam's back with the shopping and looks tired" or "Royal Mail with a large parcel", and the
 visitor's likely role, what they're carrying, mood and weather when visible. It takes about a
-second with `mimo-v2.6-pro` on Ollama's cloud (about $0.0004 a visit). The visit is described
+second with `kimi-k3` on Ollama's cloud, the most faithful to the frame of the models tried. The visit is described
 again if it's later recognised as someone else by name. People who arrive together have a
 visit each, and each description names the others ("Alex is home with Sam"). See Privacy: in the cloud, the frame
 leaves your network.
@@ -293,8 +293,8 @@ All in `.env` (see `.env.example`).
 | `SMARTEYE_RETENTION_DAYS` | 365 | Visits older than this are forgotten; 0 = never |
 | `SMARTEYE_MQTT_URL` | | `mqtt://user:pass@host:1883`; empty = off |
 | `SMARTEYE_MQTT_PREFIX` / `SMARTEYE_HA_DISCOVERY` | `smarteye` / `homeassistant` | Topics; empty discovery = no discovery |
-| `SMARTEYE_CAPTION_MODEL` | | Vision model that describes each visit, e.g. `mimo-v2.6-pro`; empty = off |
-| `SMARTEYE_CAPTION_URL` | `https://ollama.com` | Ollama's cloud, or your own Ollama server (`http://host:11434`; a cloud model through it is named `mimo-v2.6-pro:cloud`) |
+| `SMARTEYE_CAPTION_MODEL` | | Vision model that describes each visit, e.g. `kimi-k3`; empty = off |
+| `SMARTEYE_CAPTION_URL` | `https://ollama.com` | Ollama's cloud, or your own Ollama server (`http://host:11434`; a cloud model through it is named `kimi-k3:cloud`) |
 | `OLLAMA_API_KEY` | | Ollama API key, for ollama.com |
 | `SMARTEYE_CAPTION_TIMEOUT_S` | 30 | Give up on a description after this long |
 
